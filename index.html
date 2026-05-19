@@ -653,6 +653,13 @@
     body.operator-mode .goal-takeover,
     body.operator-mode .confetti { display: none !important; }
 
+    body.operator-mode .operator-panel { display: grid !important; }
+    body.operator-mode .message-bar { display: none !important; }
+    body.operator-mode .center-display { display: none !important; }
+    body.operator-mode .thermo-column { display: none !important; }
+    body.operator-mode .donor-board { display: none !important; }
+    body.operator-mirror-mode .app-grid { display: grid !important; }
+
     body.signage-mode #alert-overlay,
     body.signage-mode .goal-takeover,
     body.signage-mode .confetti,
@@ -976,6 +983,7 @@
       demoMode: false,
       demoEveryMs: 9000,
       operatorMode: new URLSearchParams(window.location.search).has("operator") || new URLSearchParams(window.location.search).get("mode") === "operator",
+      operatorMirrorMode: new URLSearchParams(window.location.search).has("mirror")
       signageMode: new URLSearchParams(window.location.search).has("signage") || new URLSearchParams(window.location.search).get("mode") === "signage",
       showControls: new URLSearchParams(window.location.search).has("controls"),
       version: "2026.05.19.01",
@@ -1040,6 +1048,7 @@
 
     function init() {
       if (CONFIG.operatorMode) document.body.classList.add("operator-mode");
+      if (CONFIG.operatorMirrorMode) document.body.classList.add("operator-mirror-mode");
       if (CONFIG.signageMode) document.body.classList.add("signage-mode");
       if ((CONFIG.showControls || (CONFIG.demoMode && CONFIG.operatorMode)) && !CONFIG.signageMode) document.body.classList.add("show-controls");
 
@@ -1055,6 +1064,10 @@
       if (CONFIG.dataUrl) {
         fetchDonations();
         setInterval(fetchDonations, CONFIG.pollEveryMs);
+      }
+      if (CONFIG.operatorMode) {
+        updateStatus("Operator mode active");
+        if (el.overlayVersion) el.overlayVersion.textContent = `v${CONFIG.version} · operator`;
       }
 
 
