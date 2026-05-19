@@ -2,7 +2,6 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="overlay-version" content="2026.05.19.02" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Queens Theatre Gala - Live Giving Overlay</title>
   <style>
@@ -653,11 +652,12 @@
     body.operator-mode .goal-takeover,
     body.operator-mode .confetti { display: none !important; }
 
-    body.operator-mode .operator-panel { display: grid !important; }
-    body.operator-mode .message-bar { display: none !important; }
-    body.operator-mode .thermo-column { display: none !important; }
-    body.operator-mode .center-display { display: none !important; }
+    body.operator-mode .thermo-column,
+    body.operator-mode .center-display,
+    body.operator-mode .message-bar,
     body.operator-mode .donor-board { display: none !important; }
+
+    body.operator-mode .operator-panel { display: grid !important; }
 
     body.signage-mode #alert-overlay,
     body.signage-mode .goal-takeover,
@@ -905,7 +905,7 @@
     <header class="operator-header">
       <div class="operator-title">Operator<br>Control</div>
       <div class="operator-status" id="operatorConnectionStatus">Starting…</div>
-      <div class="operator-status" id="overlayVersion">v2026.05.19.02</div>
+      <div class="operator-status" id="operatorFeedStatus">Feed: waiting…</div>
     </header>
 
     <div class="queue-count-card" id="queueCountCard">
@@ -964,7 +964,8 @@
       shownIds: new Set(JSON.parse(localStorage.getItem("shownDonationIds") || "[]")),
       goalReachedTriggered: JSON.parse(localStorage.getItem("goalReachedTriggered") || "false"),
       demoCounter: 0,
-      channel: null
+      channel: null,
+      controlNonce: Math.random().toString(36).slice(2)
     };
 
     const el = {
@@ -986,7 +987,7 @@
       goalTakeover: document.getElementById("goalTakeover"),
       goalTakeoverTotal: document.getElementById("goalTakeoverTotal"),
       operatorConnectionStatus: document.getElementById("operatorConnectionStatus"),
-      overlayVersion: document.getElementById("overlayVersion"),
+      operatorFeedStatus: document.getElementById("operatorFeedStatus"),
       operatorQueueCount: document.getElementById("operatorQueueCount"),
       operatorQueueList: document.getElementById("operatorQueueList"),
       queueCountCard: document.getElementById("queueCountCard"),
@@ -1012,6 +1013,9 @@
         fetchDonations();
         setInterval(fetchDonations, CONFIG.pollEveryMs);
       }
+      if (CONFIG.operatorMode) {
+        updateStatus("Operator mode active");
+      }
 
       if (CONFIG.demoMode && !CONFIG.signageMode && !CONFIG.dataUrl) {
         updateStatus("Demo mode · connect live data to go live");
@@ -1022,14 +1026,16 @@
 
     async function fetchDonations() {
       try {
-        const res = await fetch(cacheBust(CONFIG.dataUrl));
+        const res = await fetch(cacheBust(CONFIG.dataUrl), { cache: "no-store", credentials: "omit" });
         if (!res.ok) throw new Error("JSON feed fetch failed");
         const payload = await res.json();
         processRows(payload.donations || [], payload.event_state || {});
         updateStatus(`Connected · ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`);
+        if (el.operatorFeedStatus) el.operatorFeedStatus.textContent = `Feed: ${payload.donations?.length || 0} donations`;
       } catch (err) {
         console.warn(err);
-        updateStatus("Data feed issue · using last received gifts", true);
+        updateStatus(`Data feed issue · ${String(err.message || err)}`, true);
+        if (el.operatorFeedStatus) el.operatorFeedStatus.textContent = `Feed error · ${String(err.message || err)}`;
       }
     }
 
@@ -1044,13 +1050,11 @@
 
       const allValid = rows.map(normalizeRow).filter(Boolean);
 
-      if (eventState.total_raised !== undefined && eventState.total_raised !== null && String(eventState.total_raised).trim() !== "") {
-        const liveTotal = Number(String(eventState.total_raised).replace(/[^0-9.-]+/g, ""));
-        if (!Number.isNaN(liveTotal) && liveTotal >= 0) {
-          animateTotalTo(liveTotal);
-        }
-      } else {
-        const calculatedTotal = CONFIG.startingTotal + allValid.reduce((sum, d) => sum + d.amount, 0);
+      const calculatedTotal = CONFIG.startingTotal + allValid.reduce((sum, d) => sum + d.amount, 0);
+      const liveTotal = eventState.total_raised !== undefined && eventState.total_raised !== null && String(eventState.total_raised).trim() !== "" ? Number(String(eventState.total_raised).replace(/[^0-9.-]+/g, "")) : NaN;
+      if (Number.isFinite(liveTotal) && liveTotal > 0) {
+        animateTotalTo(liveTotal);
+      } else if (calculatedTotal > state.total) {
         animateTotalTo(calculatedTotal);
       }
 
@@ -1321,24 +1325,30 @@
     }
 
     function setupControlChannel() {
-      if (!("BroadcastChannel" in window)) return;
-      state.channel = new BroadcastChannel("qt-gala-giving-control");
-      state.channel.onmessage = (event) => {
-        const command = event.data && event.data.command;
-        if (!command || CONFIG.operatorMode) return;
-        if (command === "fire-next") playNext();
-        if (command === "skip-next") skipNextAlert();
-        if (command === "reset-memory") resetDisplayMemory();
-        if (command === "goal-boom") triggerGoalTakeover(true);
-      };
+      if ("BroadcastChannel" in window) {
+        state.channel = new BroadcastChannel("qt-gala-giving-control");
+        state.channel.onmessage = (event) => applyControlMessage(event.data);
+      }
+      window.addEventListener("storage", (e) => {
+        if (e.key !== "qtgala-control-bus" || !e.newValue) return;
+        try { applyControlMessage(JSON.parse(e.newValue)); } catch {}
+      });
     }
 
-    function sendControlCommand(command) {
-      if (state.channel) state.channel.postMessage({ command, sentAt: Date.now() });
+    function applyControlMessage(data) {
+      const command = data && data.command;
+      if (!command) return;
       if (command === "fire-next") playNext();
       if (command === "skip-next") skipNextAlert();
       if (command === "reset-memory") resetDisplayMemory();
       if (command === "goal-boom") triggerGoalTakeover(true);
+    }
+
+    function sendControlCommand(command) {
+      const payload = { command, sentAt: Date.now(), nonce: state.controlNonce };
+      if (state.channel) state.channel.postMessage(payload);
+      try { localStorage.setItem("qtgala-control-bus", JSON.stringify(payload)); } catch {}
+      applyControlMessage(payload);
     }
 
     function addManualGift(name, amount, fireImmediately = false) {
