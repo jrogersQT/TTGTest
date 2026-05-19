@@ -989,7 +989,7 @@
     function init() {
       if (CONFIG.operatorMode) document.body.classList.add("operator-mode");
       if (CONFIG.signageMode) document.body.classList.add("signage-mode");
-      if ((CONFIG.showControls || CONFIG.demoMode) && !CONFIG.signageMode) document.body.classList.add("show-controls");
+      if ((CONFIG.showControls || (CONFIG.demoMode && CONFIG.operatorMode)) && !CONFIG.signageMode) document.body.classList.add("show-controls");
 
       el.keyword.textContent = CONFIG.keyword;
       el.shortcode.textContent = CONFIG.shortcode;
@@ -1233,6 +1233,10 @@
 
     function updateQueueStatus() {
       if (!CONFIG.manualAlertMode) return;
+      if (!CONFIG.operatorMode) {
+        updateStatus(state.isPlaying ? "Gift in progress…" : "Waiting for gifts…");
+        return;
+      }
       const count = state.queue.length;
       if (count > 0) {
         updateStatus(`${count} gift${count === 1 ? "" : "s"} queued · press SPACE for next`);
