@@ -898,7 +898,6 @@
     <header class="operator-header">
       <div class="operator-title">Operator<br>Control</div>
       <div class="operator-status" id="operatorConnectionStatus">Starting…</div>
-      <div class="operator-status" id="overlayDiag">Diagnostics: waiting…</div>
     </header>
 
     <div class="queue-count-card" id="queueCountCard">
@@ -919,7 +918,7 @@
     const CONFIG = {
       // Google Apps Script web app endpoint that returns Google Sheet data as JSON.
       sheetId: "1Tx2cXmYbJ1iQ9FXU1LPBB_NNbvffmLuUnADOeP_IZEw",
-      backendUrl: "https://script.google.com/macros/s/AKfycbwtnNlZqotvsh0NoDPMshFaHCMZg5kCnFnbUaUsE8uBXcECwPfR_IqUUXvmFDxzBCqT/exec",
+      backendUrl: "https://script.google.com/macros/s/AKfycbwA59g8d7XzLZClXZyXXFupx1dm4FLIE19VrPD8SA3YLU3lU__VVjPYRghPbv82yyc7/exec",
       donationsSheet: "donations_log",
       eventStateSheet: "event_state",
       operatorActionsSheet: "operator_actions",
@@ -989,8 +988,7 @@
       queueCountCard: document.getElementById("queueCountCard"),
       operatorFireButton: document.getElementById("operatorFireButton"),
       operatorSkipButton: document.getElementById("operatorSkipButton"),
-      operatorResetButton: document.getElementById("operatorResetButton"),
-      overlayDiag: document.getElementById("overlayDiag")
+      operatorResetButton: document.getElementById("operatorResetButton")
     };
 
     function init() {
@@ -1006,12 +1004,12 @@
       setupControlChannel();
       updateQueueStatus();
 
-      if (CONFIG.backendUrl) {
+      if (CONFIG.dataUrl) {
         fetchDonations();
         setInterval(fetchDonations, CONFIG.pollEveryMs);
       }
 
-      if (!CONFIG.backendUrl && CONFIG.demoMode && !CONFIG.signageMode) {
+      if (CONFIG.demoMode && !CONFIG.signageMode && !CONFIG.dataUrl) {
         updateStatus("Demo mode · connect live data to go live");
         setTimeout(pushDemoDonation, 1000);
         setInterval(pushDemoDonation, CONFIG.demoEveryMs);
@@ -1019,16 +1017,40 @@
     }
 
 
+    async function fetchBackendFeed() {
+      const res = await fetch(`${CONFIG.backendUrl}?action=feed&t=${Date.now()}`, { cache: "no-store", credentials: "omit" });
+      if (!res.ok) throw new Error(`Backend feed failed: ${res.status}`);
+      return await res.json();
+    }
+
+    async function postOperatorCommand(command, donationExternalId = "", operatorNote = "") {
+      const res = await fetch(CONFIG.backendUrl, {
+        method: "POST",
+        cache: "no-store",
+        credentials: "omit",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command, donation_external_id: donationExternalId, operator_note: operatorNote })
+      });
+      if (!res.ok) throw new Error(`Command post failed: ${res.status}`);
+      return await res.json();
+    }
+
     async function fetchDonations() {
       try {
-        const payload = await fetchBackendFeed();
-        processRows(payload.donations || [], payload.event_state || {});
+        if (CONFIG.backendUrl && !CONFIG.backendUrl.includes("PASTE_YOUR_APPS_SCRIPT_EXEC_URL_HERE")) {
+          const payload = await fetchBackendFeed();
+          processRows(payload.donations || [], payload.event_state || {});
+        } else {
+          const [donations, eventState] = await Promise.all([
+            fetchCsvSheet(CONFIG.donationsSheet),
+            fetchKeyValueSheet(CONFIG.eventStateSheet)
+          ]);
+          processRows(donations, eventState);
+        }
         updateStatus(`Connected · ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`);
-        if (el.overlayDiag) el.overlayDiag.textContent = `Diagnostics: ${payload.donations?.length || 0} donations, goal ${payload.event_state?.goal || "?"}, total ${payload.event_state?.total_raised || "?"}`;
       } catch (err) {
         console.warn(err);
         updateStatus(`Data feed issue · ${String(err.message || err)}`, true);
-        if (el.overlayDiag) el.overlayDiag.textContent = `Diagnostics: ${String(err.message || err)}`;
       }
     }
 
