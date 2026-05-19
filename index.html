@@ -812,7 +812,7 @@
     .operator-button:active { transform: translateY(2px); }
   </style>
 </head>
-<body>
+<body><div id="ZZZ_DEBUG_MARKER" style="position:fixed;top:0;left:0;right:0;z-index:999999;background:#ff0;color:#000;padding:14px 16px;font:700 18px/1.2 monospace">DEBUG BUILD LOADED</div>
   <!--
     DISPLAY URL:  /index.html
     OPERATOR URL: /index.html?operator=1
@@ -993,6 +993,7 @@
     };
 
     function init() {
+      const m = document.getElementById("ZZZ_DEBUG_MARKER"); if (m) m.textContent = `DEBUG BUILD LOADED | operator=${CONFIG.operatorMode} signage=${CONFIG.signageMode} controls=${CONFIG.showControls}`;
       if (el.debugBanner) el.debugBanner.textContent = `init operator=${CONFIG.operatorMode} signage=${CONFIG.signageMode} controls=${CONFIG.showControls}`;
       if (CONFIG.operatorMode) document.body.classList.add("operator-mode");
       if (CONFIG.signageMode) document.body.classList.add("signage-mode");
