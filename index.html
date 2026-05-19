@@ -652,13 +652,6 @@
     body.operator-mode .goal-takeover,
     body.operator-mode .confetti { display: none !important; }
 
-    body.operator-mode .thermo-column,
-    body.operator-mode .center-display,
-    body.operator-mode .message-bar,
-    body.operator-mode .donor-board { display: none !important; }
-
-    body.operator-mode .operator-panel { display: grid !important; }
-
     body.signage-mode #alert-overlay,
     body.signage-mode .goal-takeover,
     body.signage-mode .confetti,
@@ -905,7 +898,6 @@
     <header class="operator-header">
       <div class="operator-title">Operator<br>Control</div>
       <div class="operator-status" id="operatorConnectionStatus">Starting…</div>
-      <div class="operator-status" id="operatorFeedStatus">Feed: waiting…</div>
     </header>
 
     <div class="queue-count-card" id="queueCountCard">
@@ -925,7 +917,12 @@
   <script>
     const CONFIG = {
       // Google Apps Script web app endpoint that returns Google Sheet data as JSON.
-      dataUrl: "https://script.googleusercontent.com/macros/echo?user_content_key=AUkAhnTfaJC6T_iW9G6kbXijeTOVSYkW3_evUIf0KLy7Bvr8SGebj_ITLkstQA3J6oAmDzcWUEw6t599VcdWlhBScVMrsbP2dD7Q99-P74WNw-zNBz1wPBAOcZRQZNPVInu0KehGeX3iXZoHHJiav0j1G1yK2Mlh6sOUmwLwWD0_fq_J2wiL4kQP1gnMhKzwGpINJXFfCNBnTHeib53LXbgFalbsB3oKbf0Z1qfH2nIoeamUOG_7psYQkWEgfZUfQC6XGNVtAE9-f1y-uysxzm_6fsmi1mA4Yw&lib=M7m99Bcu0JZ5mlfX4k2QJ6eFBzQ0Gff59",
+      sheetId: "1Tx2cXmYbJ1iQ9FXU1LPBB_NNbvffmLuUnADOeP_IZEw",
+      backendUrl: "https://script.google.com/macros/s/AKfycbwtnNlZqotvsh0NoDPMshFaHCMZg5kCnFnbUaUsE8uBXcECwPfR_IqUUXvmFDxzBCqT/exec",
+      donationsSheet: "donations_log",
+      eventStateSheet: "event_state",
+      operatorActionsSheet: "operator_actions",
+      csvBaseUrl: "https://docs.google.com/spreadsheets/d/1Tx2cXmYbJ1iQ9FXU1LPBB_NNbvffmLuUnADOeP_IZEw/export?format=csv&gid=",
 
       goal: 100000,
       startingTotal: 0,
@@ -964,8 +961,7 @@
       shownIds: new Set(JSON.parse(localStorage.getItem("shownDonationIds") || "[]")),
       goalReachedTriggered: JSON.parse(localStorage.getItem("goalReachedTriggered") || "false"),
       demoCounter: 0,
-      channel: null,
-      controlNonce: Math.random().toString(36).slice(2)
+      channel: null
     };
 
     const el = {
@@ -987,7 +983,6 @@
       goalTakeover: document.getElementById("goalTakeover"),
       goalTakeoverTotal: document.getElementById("goalTakeoverTotal"),
       operatorConnectionStatus: document.getElementById("operatorConnectionStatus"),
-      operatorFeedStatus: document.getElementById("operatorFeedStatus"),
       operatorQueueCount: document.getElementById("operatorQueueCount"),
       operatorQueueList: document.getElementById("operatorQueueList"),
       queueCountCard: document.getElementById("queueCountCard"),
@@ -1013,9 +1008,6 @@
         fetchDonations();
         setInterval(fetchDonations, CONFIG.pollEveryMs);
       }
-      if (CONFIG.operatorMode) {
-        updateStatus("Operator mode active");
-      }
 
       if (CONFIG.demoMode && !CONFIG.signageMode && !CONFIG.dataUrl) {
         updateStatus("Demo mode · connect live data to go live");
@@ -1024,19 +1016,107 @@
       }
     }
 
+
+    async function fetchBackendFeed() {
+      const res = await fetch(`${CONFIG.backendUrl}?action=feed&t=${Date.now()}`, { cache: "no-store", credentials: "omit" });
+      if (!res.ok) throw new Error(`Backend feed failed: ${res.status}`);
+      return await res.json();
+    }
+
+    async function postOperatorCommand(command, donationExternalId = "", operatorNote = "") {
+      const res = await fetch(CONFIG.backendUrl, {
+        method: "POST",
+        cache: "no-store",
+        credentials: "omit",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command, donation_external_id: donationExternalId, operator_note: operatorNote })
+      });
+      if (!res.ok) throw new Error(`Command post failed: ${res.status}`);
+      return await res.json();
+    }
+
     async function fetchDonations() {
       try {
-        const res = await fetch(cacheBust(CONFIG.dataUrl), { cache: "no-store", credentials: "omit" });
-        if (!res.ok) throw new Error("JSON feed fetch failed");
-        const payload = await res.json();
-        processRows(payload.donations || [], payload.event_state || {});
+        if (CONFIG.backendUrl && !CONFIG.backendUrl.includes("PASTE_YOUR_APPS_SCRIPT_EXEC_URL_HERE")) {
+          const payload = await fetchBackendFeed();
+          processRows(payload.donations || [], payload.event_state || {});
+        } else {
+          const [donations, eventState] = await Promise.all([
+            fetchCsvSheet(CONFIG.donationsSheet),
+            fetchKeyValueSheet(CONFIG.eventStateSheet)
+          ]);
+          processRows(donations, eventState);
+        }
         updateStatus(`Connected · ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`);
-        if (el.operatorFeedStatus) el.operatorFeedStatus.textContent = `Feed: ${payload.donations?.length || 0} donations`;
       } catch (err) {
         console.warn(err);
         updateStatus(`Data feed issue · ${String(err.message || err)}`, true);
-        if (el.operatorFeedStatus) el.operatorFeedStatus.textContent = `Feed error · ${String(err.message || err)}`;
       }
+    }
+
+    async function fetchCsvSheet(sheetName) {
+      const gid = await getSheetGid(sheetName);
+      const res = await fetch(cacheBust(`${CONFIG.csvBaseUrl}${gid}`), { cache: "no-store", credentials: "omit" });
+      if (!res.ok) throw new Error(`CSV fetch failed: ${sheetName}`);
+      const csv = await res.text();
+      return parseCsv(csv);
+    }
+
+    async function fetchKeyValueSheet(sheetName) {
+      const rows = await fetchCsvSheet(sheetName);
+      const out = {};
+      rows.forEach(r => {
+        const key = String(r.key || r.Key || r["key"] || "").trim();
+        const value = r.value ?? r.Value ?? r["value"] ?? "";
+        if (key) out[key] = value;
+      });
+      return out;
+    }
+
+    async function getSheetGid(sheetName) {
+      if (state.sheetGids && state.sheetGids[sheetName]) return state.sheetGids[sheetName];
+      const res = await fetch(`https://docs.google.com/spreadsheets/d/${CONFIG.sheetId}/edit?usp=sharing`, { cache: "no-store", credentials: "omit" });
+      const html = await res.text();
+      const map = {};
+      const rx = /#gid=(\d+)[^
+]*?>([^<]+)</g;
+      let m;
+      while ((m = rx.exec(html))) map[m[2].trim()] = m[1];
+      state.sheetGids = map;
+      if (map[sheetName]) return map[sheetName];
+      throw new Error(`Could not find gid for ${sheetName}`);
+    }
+
+    function parseCsv(csv) {
+      const rows = [];
+      let i = 0, field = '', row = [], inQuotes = false;
+      const pushField = () => { row.push(field); field = ''; };
+      const pushRow = () => { rows.push(row); row = []; };
+      while (i < csv.length) {
+        const c = csv[i++];
+        if (inQuotes) {
+          if (c === '"') {
+            if (csv[i] === '"') { field += '"'; i++; } else { inQuotes = false; }
+          } else { field += c; }
+        } else if (c === '"') {
+          inQuotes = true;
+        } else if (c === ',') {
+          pushField();
+        } else if (c === '
+') {
+          pushField(); pushRow();
+        } else if (c !== '
+') {
+          field += c;
+        }
+      }
+      if (field.length || row.length) { pushField(); pushRow(); }
+      const headers = (rows.shift() || []).map(h => h.trim());
+      return rows.filter(r => r.some(v => String(v).trim() !== '')).map(r => {
+        const obj = {};
+        headers.forEach((h, idx) => obj[h] = r[idx] ?? '');
+        return obj;
+      });
     }
 
     function processRows(rows, eventState = {}) {
@@ -1050,11 +1130,13 @@
 
       const allValid = rows.map(normalizeRow).filter(Boolean);
 
-      const calculatedTotal = CONFIG.startingTotal + allValid.reduce((sum, d) => sum + d.amount, 0);
-      const liveTotal = eventState.total_raised !== undefined && eventState.total_raised !== null && String(eventState.total_raised).trim() !== "" ? Number(String(eventState.total_raised).replace(/[^0-9.-]+/g, "")) : NaN;
-      if (Number.isFinite(liveTotal) && liveTotal > 0) {
-        animateTotalTo(liveTotal);
-      } else if (calculatedTotal > state.total) {
+      if (eventState.total_raised !== undefined && eventState.total_raised !== null && String(eventState.total_raised).trim() !== "") {
+        const liveTotal = Number(String(eventState.total_raised).replace(/[^0-9.-]+/g, ""));
+        if (!Number.isNaN(liveTotal) && liveTotal >= 0) {
+          animateTotalTo(liveTotal);
+        }
+      } else {
+        const calculatedTotal = CONFIG.startingTotal + allValid.reduce((sum, d) => sum + d.amount, 0);
         animateTotalTo(calculatedTotal);
       }
 
@@ -1063,14 +1145,14 @@
     }
 
     function normalizeRow(row) {
-      const amount = Number(String(row.amount || row.gift_amount || row.value || "").replace(/[^0-9.-]+/g, ""));
+      const amount = Number(String(row.amount || "").replace(/[^0-9.-]+/g, ""));
       if (!amount || amount <= 0) return null;
 
       const firstName = String(row.first_name || row.firstname || row["first name"] || row["First Name"] || '').trim();
       const lastName = String(row.last_name || row.lastname || row["last name"] || row["Last Name"] || '').trim();
       const combinedName = [firstName, lastName].filter(Boolean).join(' ').trim();
-      const fallbackId = `${row.external_id || row.id || row.created_at || row.timestamp || ""}-${combinedName || ""}-${amount}`;
-      const id = String(row.external_id || row.id || fallbackId).trim();
+      const fallbackId = `${row.external_id || row.created_at || ""}-${combinedName || ""}-${amount}`;
+      const id = String(row.external_id || fallbackId).trim();
       const name = String(combinedName || "A Queens Theatre Supporter").trim();
       const tier = String(row.tier || getTier(amount)).trim().toLowerCase();
       return { id, name, amount, tier, message: String(row.notes || row.message || "").trim() };
@@ -1325,30 +1407,24 @@
     }
 
     function setupControlChannel() {
-      if ("BroadcastChannel" in window) {
-        state.channel = new BroadcastChannel("qt-gala-giving-control");
-        state.channel.onmessage = (event) => applyControlMessage(event.data);
-      }
-      window.addEventListener("storage", (e) => {
-        if (e.key !== "qtgala-control-bus" || !e.newValue) return;
-        try { applyControlMessage(JSON.parse(e.newValue)); } catch {}
-      });
+      if (!("BroadcastChannel" in window)) return;
+      state.channel = new BroadcastChannel("qt-gala-giving-control");
+      state.channel.onmessage = (event) => {
+        const command = event.data && event.data.command;
+        if (!command || CONFIG.operatorMode) return;
+        if (command === "fire-next") playNext();
+        if (command === "skip-next") skipNextAlert();
+        if (command === "reset-memory") resetDisplayMemory();
+        if (command === "goal-boom") triggerGoalTakeover(true);
+      };
     }
 
-    function applyControlMessage(data) {
-      const command = data && data.command;
-      if (!command) return;
+    function sendControlCommand(command) {
+      if (state.channel) state.channel.postMessage({ command, sentAt: Date.now() });
       if (command === "fire-next") playNext();
       if (command === "skip-next") skipNextAlert();
       if (command === "reset-memory") resetDisplayMemory();
       if (command === "goal-boom") triggerGoalTakeover(true);
-    }
-
-    function sendControlCommand(command) {
-      const payload = { command, sentAt: Date.now(), nonce: state.controlNonce };
-      if (state.channel) state.channel.postMessage(payload);
-      try { localStorage.setItem("qtgala-control-bus", JSON.stringify(payload)); } catch {}
-      applyControlMessage(payload);
     }
 
     function addManualGift(name, amount, fireImmediately = false) {
