@@ -784,6 +784,52 @@
       gap: 18px;
     }
 
+    .operator-goal-panel {
+      display: grid;
+      gap: 12px;
+      padding: 22px 24px;
+      border: 4px solid rgba(255,255,255,0.28);
+      background: rgba(255,255,255,0.06);
+    }
+
+    .operator-goal-label {
+      font-size: 20px;
+      line-height: 1;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      opacity: 0.82;
+    }
+
+    .operator-goal-controls {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 14px;
+    }
+
+    .operator-goal-input {
+      width: 100%;
+      min-height: 82px;
+      border: 5px solid white;
+      background: rgba(255,255,255,0.14);
+      color: white;
+      padding: 0 22px;
+      font-size: 34px;
+      line-height: 1;
+      font-weight: 700;
+      font-family: var(--font-primary);
+    }
+
+    .operator-goal-input::placeholder {
+      color: rgba(255,255,255,0.45);
+    }
+
+    .operator-goal-input:focus-visible {
+      outline: 0;
+      border-color: var(--qt-yellow);
+      box-shadow: 0 0 0 4px rgba(255,209,0,0.18);
+    }
+
     .operator-button {
       appearance: none;
       border: 0;
@@ -912,6 +958,14 @@
       <button class="operator-button secondary" id="operatorSkipButton">Skip Next</button>
       <button class="operator-button secondary" id="operatorResetButton">Reset Memory</button>
     </div>
+
+    <div class="operator-goal-panel">
+      <label class="operator-goal-label" for="operatorGoalInput">Manual goal override</label>
+      <div class="operator-goal-controls">
+        <input class="operator-goal-input" id="operatorGoalInput" type="number" min="1" step="100" inputmode="numeric" placeholder="30000">
+        <button class="operator-button primary" id="operatorGoalApplyButton">Set Goal</button>
+      </div>
+    </div>
   </section>
 
   <script>
@@ -953,10 +1007,11 @@
       total: CONFIG.startingTotal,
       queue: [],
       isPlaying: false,
-      shownIds: new Set(JSON.parse(localStorage.getItem("shownDonationIds") || "[]")),
-      goalReachedTriggered: JSON.parse(localStorage.getItem("goalReachedTriggered") || "false"),
+      shownIds: new Set(),
+      goalReachedTriggered: false,
       demoCounter: 0,
-      channel: null
+      channel: null,
+      manualGoalOverride: false
     };
 
     const el = {
@@ -983,7 +1038,9 @@
       queueCountCard: document.getElementById("queueCountCard"),
       operatorFireButton: document.getElementById("operatorFireButton"),
       operatorSkipButton: document.getElementById("operatorSkipButton"),
-      operatorResetButton: document.getElementById("operatorResetButton")
+      operatorResetButton: document.getElementById("operatorResetButton"),
+      operatorGoalInput: document.getElementById("operatorGoalInput"),
+      operatorGoalApplyButton: document.getElementById("operatorGoalApplyButton")
     };
 
     function init() {
@@ -997,6 +1054,7 @@
       updateTotalDisplay();
       setupControls();
       setupControlChannel();
+      updateOperatorGoalInput();
       updateQueueStatus();
 
       if (CONFIG.dataUrl) {
@@ -1025,11 +1083,12 @@
     }
 
     function processRows(rows, eventState = {}) {
-      if (eventState.goal) {
+      if (!state.manualGoalOverride && eventState.goal) {
         const liveGoal = Number(String(eventState.goal).replace(/[^0-9.-]+/g, ""));
         if (liveGoal > 0) {
           CONFIG.goal = liveGoal;
           el.goalAmount.textContent = money(CONFIG.goal);
+          updateOperatorGoalInput();
         }
       }
 
@@ -1198,7 +1257,7 @@
       if (CONFIG.operatorMode || CONFIG.signageMode) return;
       if (force) {
         state.goalReachedTriggered = false;
-        localStorage.removeItem("goalReachedTriggered");
+        
       }
       el.goalTakeoverTotal.textContent = `${money(state.total)} raised`;
       el.goalTakeover.classList.remove("active");
@@ -1309,6 +1368,10 @@
       el.operatorFireButton?.addEventListener("click", () => sendControlCommand("fire-next"));
       el.operatorSkipButton?.addEventListener("click", () => sendControlCommand("skip-next"));
       el.operatorResetButton?.addEventListener("click", () => sendControlCommand("reset-memory"));
+      el.operatorGoalApplyButton?.addEventListener("click", applyManualGoalOverride);
+      el.operatorGoalInput?.addEventListener("keydown", (e) => {
+        if (e.key === 'Enter') applyManualGoalOverride();
+      });
     }
 
     function setupControlChannel() {
@@ -1359,8 +1422,8 @@
     }
 
     function resetDisplayMemory() {
-      localStorage.removeItem("shownDonationIds");
-      localStorage.removeItem("goalReachedTriggered");
+      
+      
       state.shownIds.clear();
       state.goalReachedTriggered = false;
       state.queue = [];
@@ -1372,8 +1435,7 @@
     }
 
     function saveShownIds() {
-      const ids = Array.from(state.shownIds).slice(-500);
-      localStorage.setItem("shownDonationIds", JSON.stringify(ids));
+      return;
     }
 
     function money(value) {
