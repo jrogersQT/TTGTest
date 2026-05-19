@@ -1257,7 +1257,6 @@
       if (CONFIG.operatorMode || CONFIG.signageMode) return;
       if (force) {
         state.goalReachedTriggered = false;
-        
       }
       el.goalTakeoverTotal.textContent = `${money(state.total)} raised`;
       el.goalTakeover.classList.remove("active");
@@ -1370,7 +1369,7 @@
       el.operatorResetButton?.addEventListener("click", () => sendControlCommand("reset-memory"));
       el.operatorGoalApplyButton?.addEventListener("click", applyManualGoalOverride);
       el.operatorGoalInput?.addEventListener("keydown", (e) => {
-        if (e.key === 'Enter') applyManualGoalOverride();
+        if (e.key === "Enter") applyManualGoalOverride();
       });
     }
 
@@ -1422,8 +1421,6 @@
     }
 
     function resetDisplayMemory() {
-      
-      
       state.shownIds.clear();
       state.goalReachedTriggered = false;
       state.queue = [];
