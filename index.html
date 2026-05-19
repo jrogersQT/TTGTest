@@ -965,6 +965,7 @@
     };
 
     const el = {
+      debugBanner: document.getElementById("debugBanner"),
       keyword: document.getElementById("keyword"),
       shortcode: document.getElementById("shortcode"),
       progressFill: document.getElementById("progressFill"),
@@ -992,6 +993,7 @@
     };
 
     function init() {
+      if (el.debugBanner) el.debugBanner.textContent = `init operator=${CONFIG.operatorMode} signage=${CONFIG.signageMode} controls=${CONFIG.showControls}`;
       if (CONFIG.operatorMode) document.body.classList.add("operator-mode");
       if (CONFIG.signageMode) document.body.classList.add("signage-mode");
       if ((CONFIG.showControls || (CONFIG.demoMode && CONFIG.operatorMode)) && !CONFIG.signageMode) document.body.classList.add("show-controls");
@@ -1036,10 +1038,12 @@
     }
 
     async function fetchDonations() {
+      if (el.debugBanner) el.debugBanner.textContent = `fetching ${CONFIG.backendUrl}`;
       try {
         if (CONFIG.backendUrl && !CONFIG.backendUrl.includes("PASTE_YOUR_APPS_SCRIPT_EXEC_URL_HERE")) {
           const payload = await fetchBackendFeed();
           processRows(payload.donations || [], payload.event_state || {});
+        if (el.debugBanner) el.debugBanner.textContent = `ok donations=${(payload.donations||[]).length} goal=${payload.event_state?.goal} total=${payload.event_state?.total_raised}`;
         } else {
           const [donations, eventState] = await Promise.all([
             fetchCsvSheet(CONFIG.donationsSheet),
@@ -1051,6 +1055,7 @@
       } catch (err) {
         console.warn(err);
         updateStatus(`Data feed issue · ${String(err.message || err)}`, true);
+        if (el.debugBanner) el.debugBanner.textContent = `ERR ${String(err.message || err)}`;
       }
     }
 
@@ -1385,6 +1390,7 @@
     }
 
     function updateStatus(message, isError = false) {
+      if (el.debugBanner) el.debugBanner.textContent = `${message} | op=${CONFIG.operatorMode} sig=${CONFIG.signageMode} q=${state.queue.length} total=${state.total}`;
       el.statusText.textContent = message;
       if (CONFIG.operatorMode) {
         el.operatorConnectionStatus.textContent = `${message} · ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
