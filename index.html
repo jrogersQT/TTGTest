@@ -894,7 +894,7 @@
     <button id="debugReset">Reset</button>
   </div>
 
-  <section class="operator-panel" id="operatorPanel">
+  <section class="operator-panel" id="operatorPanel" style="display:none;background:#111;color:#fff;border:6px solid #f00;position:fixed;inset:10px;z-index:999998">
     <header class="operator-header">
       <div class="operator-title">Operator<br>Control</div>
       <div class="operator-status" id="operatorConnectionStatus">Starting…</div>
@@ -993,6 +993,9 @@
     };
 
     function init() {
+      document.body.classList.toggle("operator-mode", CONFIG.operatorMode);
+      document.body.classList.toggle("signage-mode", CONFIG.signageMode);
+      document.body.classList.toggle("show-controls", CONFIG.showControls);
       const m = document.getElementById("ZZZ_DEBUG_MARKER"); if (m) m.textContent = `DEBUG BUILD LOADED | operator=${CONFIG.operatorMode} signage=${CONFIG.signageMode} controls=${CONFIG.showControls}`;
       if (el.debugBanner) el.debugBanner.textContent = `init operator=${CONFIG.operatorMode} signage=${CONFIG.signageMode} controls=${CONFIG.showControls}`;
       if (CONFIG.operatorMode) document.body.classList.add("operator-mode");
@@ -1391,6 +1394,7 @@
     }
 
     function updateStatus(message, isError = false) {
+      const op = document.getElementById("operatorPanel"); if (op && CONFIG.operatorMode) op.style.display = "grid";
       if (el.debugBanner) el.debugBanner.textContent = `${message} | op=${CONFIG.operatorMode} sig=${CONFIG.signageMode} q=${state.queue.length} total=${state.total}`;
       el.statusText.textContent = message;
       if (CONFIG.operatorMode) {
